@@ -1,0 +1,278 @@
+#!/bin/bash
+# Author: Pietro Bertera
+# Created Date: 15/07/2011
+#
+# Poor man virtual consolidated backup
+
+vmware_cmd=vim-cmd
+vmkfstools_cmd=vmkfstools
+
+
+error() {
+	echo "ERROR: $@" >&2
+	exit -1
+}
+
+logger() {
+	echo "INFO: $@" >&2
+}
+
+warning() {
+	echo "WARNING: $@" >&2
+}
+
+get_all_vms() {
+	$ssh_cmd "vim-cmd  vmsvc/getallvms" | sed 's/[[:blank:]]\{3,\}/   /g' | awk -F'   ' '{print "\""$1"\";\""$2"\";\""$3"\""}' |  sed 's/\] /\]\";\"/g' | sed '1,1d'
+}
+
+create_snapshot() {
+	if $ssh_cmd "vim-cmd vmsvc/snapshot.create \"$1\" \"$2\" \"$2\" \"$vm_snapshot_memory\" \"$vm_snapshot_quiesce\""; then
+		logger "[$vm] Snapshot $2 created"
+	else
+		error "[$vm] Unable to create snapshot $2"
+	fi
+}
+
+consolidate_snapshot() {
+	vm_id=$1
+	if $ssh_cmd ${vmware_cmd} vmsvc/snapshot.remove ${vm_id}; then
+		logger "[$vm] Snapshot consolidated"
+	else
+		logger "[$vm] Error during snapshot consolidation"
+	fi
+}
+
+snapshot_exists(){
+	#$1=VMX directory
+	if $ssh_cmd "ls \"$1\" | grep -q \"\-delta\.vmdk\""; then
+		error "[$vm] Snapshots found for this VM, please commit all snapshots before continuing!"
+	fi	
+}
+
+get_vmdks() {
+	vmx_path="$1"
+	vmx_filename=$(basename "$vmx_path")
+	local_vmx_dir=$(mktemp -d /tmp/vmx.XXXXXX)
+	local_vmx="$local_vmx_dir"/"$vmx_filename"
+	scp $ssh_opts $user@$host:"${vmx_path// /\\ }" "$local_vmx_dir"
+	if [ -f "$local_vmx" ]; then
+		logger "[$vm] local copy of vmx in $local_vmx"
+	else	
+		rm -rf "$local_vmx_dir"
+		error "[$vm] cannot copy vmx in local"
+	fi
+
+	vmdks_found=$(grep -iE '(scsi|ide)' "$local_vmx" | grep -i fileName | awk -F " " '{print $1}')
+	
+	OIFS=$IFS
+	IFS=$'\n'
+		
+	for disk in $vmdks_found; do
+		scsi_id=$(echo ${disk%%.*})
+		grep -i "${scsi_id}.present" "${local_vmx}" | grep -i "true" > /dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			grep -i "${scsi_id}.mode" "${local_vmx}" | grep -i "independent" > /dev/null 2>&1
+			if [ $? -eq 1 ]; then
+				# not indipendent disk
+				grep -i "${scsi_id}.deviceType" "${local_vmx}" | grep -i "scsi-hardDisk" > /dev/null 2>&1
+				if [ $? -eq 0 ]; then
+					d=$(grep -i ${scsi_id}.fileName "${local_vmx}" | awk -F "\"" '{print $2}')
+					vmdks="$vmdks:$d"
+				else
+					grep -i ${scsi_id}.fileName "${local_vmx}" | grep -i ".vmdk" > /dev/null 2>&1
+					if [ $? -eq 0 ]; then
+						d=$(grep -i ${scsi_id}.fileName "${local_vmx}" | awk -F "\"" '{print $2}')
+						vmdks="$vmdks:$d"					
+					fi
+				fi
+			else
+				# indipendent disk are not affected by snapshot
+				warning "[$vm] Indipendent disk found: \"$disk\" not affected by backup"
+			fi
+		fi
+	done
+	IFS=$OIFS
+	echo ${vmdks/:/}
+	rm -rf "$local_vmx_dir"
+}
+
+run () {
+	vmdata=$(get_all_vms | grep "$vm") || error "$vm not found"
+	vmfs_volume=$(echo $vmdata | awk -F ";" '{print $3}' | sed 's/\[//;s/\]//;s/"//g')
+	vmx_conf=$(echo $vmdata| awk -F ";" '{print $4}' | sed 's/\[//;s/\]//;s/"//g')
+	vmx_path="/vmfs/volumes/${vmfs_volume}/${vmx_conf}"
+	vmx_dir=$(dirname "${vmx_path}")
+	vm_id=$(echo $vmdata | awk -F ";" '{print $1}' | sed 's/"//g')
+
+	logger "[$vm] VMFS Volume: $vmfs_volume"
+	logger "[$vm] VMX: $vmx_conf"
+	logger "[$vm] VMX Path: $vmx_path"
+	logger "[$vm] VMX Dir: $vmx_dir"
+	logger "[$vm] VM ID: $vm_id"
+
+	snapshot_exists "$vmx_dir"
+	vmdks=$(get_vmdks "$vmx_path")
+	create_snapshot "$vm_id" "${snapshot_prefix}-$vm"
+
+	start_iter_snap=0
+	while [ $($ssh_cmd $vmware_cmd vmsvc/snapshot.get "$vm_id" | wc -l) -eq 1 ]; do
+		if [ $start_iter_snap -ge $snapshot_timeout ]; then
+			error "[$vm] Snapshot timed out."
+			break
+		fi
+		logger "[$vm] Waiting for snapshot creation to be completed. $start_iter_snap"
+		sleep 60
+		start_iter_snap=$(($start_iter_snap + 1))
+	done
+
+	$ssh_cmd "mkdir -p \"$backup_dir\""
+	logger "[$vm] Saving VMX"
+	$ssh_cmd "cp \"$vmx_path\" \"$backup_dir\""
+
+	OIFS=$IFS
+	IFS=:
+	for vmdk in $vmdks; do
+		IFS=$OIFS
+		echo $vmdk | grep "^/vmfs/volumes" > /dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			source_vmdk=$vmdk
+			ds_uuid="$(echo ${vmdk#/vmfs/volumes/*})"
+			ds_uuid="$(echo ${ds_uuid%/*/*})"
+			vmdk_disk="$(echo ${vmdk##/*/})"
+			$ssh_cmd "mkdir -p \"${backup_dir}/${ds_uuid}\""
+			destination_vmdk="${backup_dir}/${ds_uuid}/${vmdk_disk}"
+		else
+			source_vmdk=${vmx_dir}/${vmdk}
+			destination_vmdk="${backup_dir}/${vmdk}"
+		fi
+		logger "[$vm] VMDK: $vmdk"
+		logger "[$vm] source: $source_vmdk"
+		logger "[$vm] destination: $destination_vmdk"
+		
+		$ssh_cmd "grep vmfsPassthroughRawDeviceMap \"${source_vmdk}\" > /dev/null 2>&1"
+		if [ $? -eq 1 ]; then
+			if $ssh_cmd "ls \"${destination_vmdk}\" > /dev/null 2>&1" ; then
+				logger "[$vm] \"${destination_vmdk}\" exists."
+				if [ "$overwrite_backup" == "1" ]; then
+					logger "[$vm] removing \"${destination_vmdk}\""
+					$ssh_cmd "${vmkfstools_cmd} -U \"${destination_vmdk}\""
+				else
+					if $ssh_cmd "ls \"${destination_vmdk}\" > /dev/null 2>&1" ; then
+						logger "[$vm] skipping \"$vmdk\""
+						continue
+					fi
+				fi
+			fi
+			logger "[$vm] Backup of \"${source_vmdk}\" to \"${destination_vmdk}\""
+			${ssh_cmd} "${vmkfstools_cmd} -i \"${source_vmdk}\" ${vmkfstools_opts} \"${destination_vmdk}\""
+			if [ $? -ne 0 ] ; then
+				warning "[$vm] error in backing up of \"${source_vmdk}\""
+				consolidate_snapshot "$vm_id"
+				error "[$vm] error in backing up of \"${source_vmdk}\""
+			else
+				logger "[$vm] Backup successful."	
+			fi
+		else
+			warning "[$vm] A physical RDM \"${source_vmdk}\", which will not be backed up"
+		fi
+		IFS=:
+	done
+	IFS=$OIFS
+	consolidate_snapshot "$vm_id"
+}
+
+usage(){
+	[ $# -gt 0 ] && echo "ERROR: $@"
+	echo 
+	echo "Usage: $0 -v [VM] -d [DIR] -u [USER] -h [host] <options>"
+	echo 
+	echo "options:"
+	echo "	-v <vm>		Virtual machine to backup [*]"
+	echo "	-d <dir>	Remote directory to store backup [*]"
+	echo "	-u <user>	ESXi username (default: root)"
+	echo "	-h <host>	ESXi host [*]"
+	echo "	-f <opts>	vmkfstool optons (default: \"-a lsilogic -d zeroedthick\")"
+	echo "	-o		overwrite existent backups"
+	echo "	-q		use quiesce snapshot"
+	echo "	-s <opts>	ssh options (default: \"-i /var/lib/bacula/.ssh/id_rsa\")"
+	echo "	-L <cmd>	local command executed after backup of virtual disks, this command is executed on local machine"
+	echo "	-R <cmd>	remote command executed on ESXi host after local command execution"
+
+	echo
+	echo
+	echo "[*] required options"
+	echo
+	exit 1
+}
+
+vm=""
+backup_dir=""
+user=root
+host=
+vmkfstools_opts="-a lsilogic -d zeroedthick"
+overwrite_backup=0
+vm_snapshot_memory=0
+vm_snapshot_quiesce=1
+ssh_opts="-i /var/lib/bacula/.ssh/id_rsa"
+snapshot_prefix="PMVCB"
+local_command=""
+remote_command=""
+
+while getopts "v:d:u:h:f:oqs:P:L:R:" ARGS; do
+	case $ARGS in
+		v)
+			vm="${OPTARG}"
+			;;
+		d)
+			backup_dir="${OPTARG}"
+			;;
+		u)
+			user="${OPTARG}"
+			;;
+		h)
+			host="${OPTARG}"
+			;;
+		f)
+			vmkfstools_opts="${OPTARG}"
+			;;
+		o)
+			overwrite_backup=1
+			;;
+		q)
+			vm_snapshot_quiesce=1
+			;;
+		s)
+			ssh_opts="${OPTARG}"
+			;;
+		P)
+			snapshot_prefix="${OPTARG}"
+			;;
+		L)
+			local_command="${OPTARG}"
+			;;
+		R)
+			remote_command="${OPTARG}"
+			;;
+		*)
+			usage "unknown option -$ARG"
+			;;
+	esac
+done
+
+[ -z "$vm" ] && usage "virtual machine is required"
+[ -z "$backup_dir" ] && usage "backup directory is required"
+[ -z "$user" ] && usage "username is required"
+[ -z "$host" ] && usage "host is required"
+
+ssh_cmd="ssh $ssh_opts $user@$host"
+
+run
+
+if [ -n "$local_command" ];then
+	logger "[$vm] executing local command"
+	$local_command
+fi
+if [ -n "$remote_command" ]; then
+	logger "[$vm] executing remote command"
+	$ssh_cmd "$remote_command"
+fi
