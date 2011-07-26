@@ -1,32 +1,33 @@
 Poor man VMware consolidated Backup
 ===================================
 
-VMware offre un pacchetto di backup per le macchine virtuali: VCB (VMware consolidated Backup): http://www.vmware.com/products/vi/cb_overview.html
+VMware offers a backup system for virtual machines: VCB (VMware consolidated Backup): http://www.vmware.com/products/vi/cb_overview.htm
 
-Il VCB non fa altro che:
+When the VCB run it:
 
-* eseguire uno snapshot di una VM
-* clonare i dischi virtuali della VM
-* consolidare lo snapshot (rimozione dello snapshot)
+* execute a snapshot of VM
+* clone virtual machine disks
+* consolidates the snapshot (snapshot removing)
 
-I vantaggi di un backup del genere sono:
+The advantages of this backup system are:
 
-* si ha il backup una macchina virtuale intera
-* non ci sono downtime: lo snapshot si puo' fare a caldo
-* se i vmware tools fanno il loro dovere il filesystem dovrebbe essere consistente
+* full backup of a virtual machine
+* no downtime
+* the filesystem should be consistent
 
-Gli svantaggi sono:
+The disadvantages are:
 
-* si ha il backup di una macchina virtuale intera (leggi: no incrementali)
-* si hanno gli stessi limiti derivati dall'uso degli snapshot: no RDM, ecc..
+* full backup of a virtual machine (read: no incremental or differential)
+* is snapshot dependent (no RDM or indipendent devices)
 
-In buona sostanza il VCB è un buon sistema per il disaster recovery (se i paletti imposti dall'uso degli snapshot non sono troppo restrittivi).
+Basically VCB is a good sistem for disaster recovery (whether the restrictions imposed by the use of snapshots ad not too restrictive).
 
-E' possibile implementare un sistema di backup molto simile automatizzando le operazioni di snapshot, cloning e consolidation tramite uno script.
+With a lot of bash line is possible to implement a similar system by automating the snapshot, cloning and consolitation operations.
 
 Lo script in questione è pmvcb: pmvcb esegue le operazioni sopra elencate su un host ESXi.
+This is the goal of pvcb script.
 
-Di seguito l'help:
+Below the help of pvcb:
 
     Usage: ./pmvcb -v [VM] -d [DIR] -h [host] <options>
     
@@ -45,19 +46,22 @@ Di seguito l'help:
 
     [*] required options
 
-come opzioni obbligatorie richiede il nome della VM da backuppare (-v), la directory di appoggio in cui clonare i dischi (-d) e l'host ESXi a cui collegarsi (-h). 
-Tramite l'opzione -f è possibile specificare diverse opzioni al comando vmkfstool utilizato per le operazioni di cloning, tramite -q richiede un'operazione di Quiescing prima di effettuare lo snapshot.
--s istruisce il comando ssh (es. ad usare l'autenticazione con chiave RSA).
--L e -R eseguono comandi rispettivamente e nell'ordine sull'host locale e sull'host remoto.
+The required options are: the name of VM to do backing-up (-v), the directory where pvcb store the cloned disks (-d) and the ESXi host (-h).
+With -f option you can specify more options to vmkfstools command (the comamnd used by ESXi for cloning disks), with -q option you can use quiescent snapshot.
+With -s option you can specify more options for ssh (for example using a RSA key).
+-L and -R run commands on localhost and remote ESXi host.
  
 
-**pmvcb si occupa di:**
+**pmvcb deals with:**
 
-1. verificare che la virtual machine non abbia dischi indipendent oppure RDM.
-2. verificare che non ci siano snapshot attivi sulla virtual machine
-3. eseguire lo snapshot
-4. clonare i dischi e il .vmx della virtual machine nella directory specificata dall'opzione -d
-5. consolidare lo snapshot creato
-6. eseguire i comandi specificati da -L localmente
+1. verify that the virtual machine not have RDM or indipendent disks
+2. verify that there are not snapshot in progress
+3. executing the snapshot
+4. disk cloning and copy .vmx file of virtual machine in the direcotry specified by -d option
+5. consolidate the snapshot
+6. executing command specified by -L option locally
+7. executing command specified by -R option remotely
 
+**really recommended to use rsa authentication with ssh (http://plone.lucidsolutions.co.nz/linux/vmware/esxi/enabling-ssh-with-public-key-authentication-on-vmware-esxi-4)**
 
+**this script is tested on ESXi 4.0 / 4.1**
