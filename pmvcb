@@ -35,7 +35,13 @@ create_snapshot() {
 
 consolidate_snapshot() {
 	vm_id=$1
-	if $ssh_cmd ${vmware_cmd} vmsvc/snapshot.remove ${vm_id}; then
+	if [ "$vm_snapshot_useid" == "1" ]; then
+		sn_id=$($ssh_cmd ${vmware_cmd} vmsvc/snapshot.get ${vm_id} | sed -ne "/${snapshot_prefix}-$vm/{n;s/.*Snapshot Id *: *//p;}")
+	else
+		snapshot_id=
+	fi
+	if $ssh_cmd ${vmware_cmd} vmsvc/snapshot.remove ${vm_id} ${sn_id}; then
+
 		logger "[$vm] Snapshot consolidated"
 	else
 		logger "[$vm] Error during snapshot consolidation"
@@ -213,6 +219,8 @@ vmkfstools_opts="-a lsilogic -d zeroedthick"
 overwrite_backup=0
 vm_snapshot_memory=0
 vm_snapshot_quiesce=1
+vm_snapshot_useid=1
+snapshot_timeout=10
 ssh_opts="-i /var/lib/bacula/.ssh/id_rsa"
 snapshot_prefix="PMVCB"
 local_command=""
