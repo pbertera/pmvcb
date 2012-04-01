@@ -203,7 +203,8 @@ usage(){
 	echo "	-s <opts>	ssh options (default: \"-i /var/lib/bacula/.ssh/id_rsa\")"
 	echo "	-L <cmd>	local command executed after backup of virtual disks, this command is executed on local machine"
 	echo "	-R <cmd>	remote command executed on ESXi host after local command execution"
-
+	echo "	-t <timeout>	snapshot creation timeout in minutes. (default 10)"
+	echo "	-U		use the snapshot_id syntax in snapshot.remove (default NO)"
 	echo
 	echo
 	echo "[*] required options"
@@ -219,14 +220,14 @@ vmkfstools_opts="-a lsilogic -d zeroedthick"
 overwrite_backup=0
 vm_snapshot_memory=0
 vm_snapshot_quiesce=1
-vm_snapshot_useid=1
+vm_snapshot_useid=0
 snapshot_timeout=10
 ssh_opts="-i /var/lib/bacula/.ssh/id_rsa"
 snapshot_prefix="PMVCB"
 local_command=""
 remote_command=""
 
-while getopts "v:d:u:h:f:oqs:P:L:R:" ARGS; do
+while getopts "v:d:u:h:f:oqs:P:L:R:t:U" ARGS; do
 	case $ARGS in
 		v)
 			vm="${OPTARG}"
@@ -260,6 +261,12 @@ while getopts "v:d:u:h:f:oqs:P:L:R:" ARGS; do
 			;;
 		R)
 			remote_command="${OPTARG}"
+			;;
+		t)
+			snapshot_timeout="${OPTARG}"			
+			;;
+		U)
+			vm_snapshot_useid=1
 			;;
 		*)
 			usage "unknown option -$ARG"
