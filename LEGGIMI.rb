@@ -41,7 +41,8 @@ Di seguito l'help:
 	-s <opts>	ssh options (default: "-i /var/lib/bacula/.ssh/id_rsa")
 	-L <cmd>	local command executed after backup of virtual disks, this command is executed on local machine
 	-R <cmd>	remote command executed on ESXi host after local command execution
-
+	-t <timeout>	snapshot creation timeout in minutes. (default 10)
+	-U		use the snapshot_id syntax in snapshot.remove (default NO)
 
     [*] required options
 
@@ -49,6 +50,8 @@ come opzioni obbligatorie richiede il nome della VM da backuppare (-v), la direc
 Tramite l'opzione -f è possibile specificare diverse opzioni al comando vmkfstool utilizato per le operazioni di cloning, tramite -q richiede un'operazione di Quiescing prima di effettuare lo snapshot.
 -s istruisce il comando ssh (es. ad usare l'autenticazione con chiave RSA).
 -L e -R eseguono comandi rispettivamente e nell'ordine sull'host locale e sull'host remoto.
+-t definisce un timeout per la creazione dello snapshot. 
+-U supporta la sintassi per snapshot_id in snapshot.remove.
  
 
 **pmvcb si occupa di:**

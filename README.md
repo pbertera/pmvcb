@@ -42,15 +42,16 @@ Below the help of pvcb:
 	-s <opts>	ssh options (default: "-i /var/lib/bacula/.ssh/id_rsa")
 	-L <cmd>	local command executed after backup of virtual disks, this command is executed on local machine
 	-R <cmd>	remote command executed on ESXi host after local command execution
-
+	-t <timeout>	snapshot creation timeout in minutes. (default 10)
+	-U		use the snapshot_id syntax in snapshot.remove (default NO)
+	
 
     [*] required options
 
 The required options are: the name of VM to do backing-up (-v), the directory where pvcb store the cloned disks (-d) and the ESXi host (-h).
 With -f option you can specify more options to vmkfstools command (the comamnd used by ESXi for cloning disks), with -q option you can use quiescent snapshot.
 With -s option you can specify more options for ssh (for example using a RSA key).
--L and -R run commands on localhost and remote ESXi host.
- 
+-L and -R run commands on localhost and remote ESXi host. -t defines the timeout for snapshot creation. -U supports the snapshot_id in snapshot.remove.
 
 **pmvcb deals with:**
 
