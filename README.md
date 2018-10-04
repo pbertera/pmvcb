@@ -66,7 +66,3 @@ With -s option you can specify more options for ssh (for example using a RSA key
 **really recommended to use rsa authentication with ssh (http://plone.lucidsolutions.co.nz/linux/vmware/esxi/enabling-ssh-with-public-key-authentication-on-vmware-esxi-4)**
 
 **this script is tested on ESXi 4.0 / 4.1**
-
-
-[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/pbertera/pmvcb/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
-
